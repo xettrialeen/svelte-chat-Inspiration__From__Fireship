@@ -4,14 +4,16 @@
   import { navigate } from "svelte-routing";
 
   let messagesData = [];
-  let messagelikes = [];
+  $: messagelikes = [];
 
-  let userLike = {};
+ 
   let unsubscribe;
+  let unsubscribeLikes;
   let container;
   let shouldScroll = true;
   let likeCounts = [];
   onMount(async () => {
+
     if (!$currentUser) {
       navigate("/login", { replace: true });
     } else {
@@ -28,6 +30,46 @@
 
       messagesData = data.items;
 
+      unsubscribeLikes = await pb
+        .collection("messageLikes")
+        .subscribe("*", async ({ action, record }) => {
+          if (action === "update") {
+            userLikeInner.forEach((item) => {
+              if (item.messageId === record.post) {
+                item.like = record.like;
+                item.love = record.love;
+                item.fire = record.fire;
+                item.dump = record.dump;
+              }
+            });
+
+            messagelikes.forEach((item) => {
+              if (item.post === record.post) {
+                item.like = record.like;
+                item.love = record.love;
+                item.fire = record.fire;
+                item.dump = record.dump;
+                item.post = record.post;
+                item.userLike = record.userLike;
+              }
+            });
+
+         
+          
+
+            // record.expand = { field };
+            // userLikeInner.forEach((item) => {
+            //   field.forEach((itemFiled) => {
+            //     if (item.messageId === itemFiled.collectionId) {
+            //       console.log(item);
+            //     }
+            //   });
+            // });
+
+            // messagesData = [...messagesData, record];
+          }
+        });
+
       // get like counts
 
       //   subscriibe to realtime messages
@@ -35,9 +77,7 @@
         .collection("messages")
         .subscribe("*", async ({ action, record }) => {
           if (action === "create") {
-            console.log(record);
             const field = await pb.collection("users").getOne(record.field);
-
             record.expand = { field };
 
             messagesData = [...messagesData, record];
@@ -59,6 +99,7 @@
 
   onDestroy(() => {
     unsubscribe?.();
+    unsubscribeLikes?.();
   });
 
   //   handlle signout
@@ -96,6 +137,163 @@
       console.log(error);
     }
   };
+  let userLikeInner = [];
+
+  const fetchData = async () => {
+    const storedData = localStorage.getItem("userLikeInner");
+    if (storedData) {
+      userLikeInner = JSON.parse(storedData);
+    } else {
+      // Retrieve existing like data from the backend and initialize userLikeInner array
+      const retriveDataProfile = await pb
+        .collection("messageLikes")
+        .getFullList({
+          sort: "created",
+        });
+
+      retriveDataProfile.forEach((users) => {
+        const existingEntry = {
+          id: users.post,
+          like: users.like,
+          love: users.love,
+          fire: users.fire,
+          dump: users.dump,
+        };
+        userLikeInner.push(existingEntry);
+      });
+
+      localStorage.setItem("userLikeInner", JSON.stringify(userLikeInner));
+    }
+  };
+
+  fetchData();
+
+  const handleLike = async (button, post, messageId) => {
+
+  
+    const existingIndex = userLikeInner.findIndex((item) => item.id === post);
+
+    if (existingIndex !== -1) {
+      // Update existing entry
+      userLikeInner[existingIndex][button] =
+        !userLikeInner[existingIndex][button];
+      console.log(userLikeInner, userLikeInner[existingIndex][button]);
+    } else {
+      // Create new entry
+      const newEntry = {
+        id: post,
+        messageId: messageId,
+        [button]: true,
+      };
+      userLikeInner.push(newEntry);
+    }
+
+    for (const item of userLikeInner) {
+      if (item.messageId === messageId) {
+        const retriveDataProfile = await pb
+          .collection("messageLikes")
+          .getFullList({
+            sort: "created",
+          });
+
+        const userExists = retriveDataProfile.some(
+          (users) =>
+            users.userLike.includes(pb.authStore.model.id) &&
+            users.post === item.messageId
+        );
+
+        if (userExists) {
+          const likeEntry = retriveDataProfile.find(
+            (users) =>
+              users.userLike.includes(pb.authStore.model.id) &&
+              users.post === item.messageId
+          );
+
+          await pb.collection("messageLikes").update(likeEntry.id, {
+            like: item.like,
+            love: item.love,
+            fire: item.fire,
+            dump: item.dump,
+            post: item.messageId,
+            userLike: pb.authStore.model.id,
+          });
+        } else {
+          await pb.collection("messageLikes").create({
+            like: item.like || false,
+            love: item.love || false,
+            fire: item.fire || false,
+            dump: item.dump || false,
+            post: item.messageId,
+            userLike: pb.authStore.model.id,
+          });
+        }
+      }
+    }
+
+    localStorage.setItem("userLikeInner", JSON.stringify(userLikeInner));
+  };
+
+  // // handle like functionality
+  // const handleLike = async (button, post, messageId) => {
+  //   const existingIndex = userLikeInner.findIndex((item) => item.id === post);
+  //   if (existingIndex !== -1) {
+  //     // Update existing entry
+  //     userLikeInner[existingIndex][button] =
+  //       !userLikeInner[existingIndex][button];
+  //   } else {
+  //     // Create new entry
+  //     const newEntry = { id: post, messageId: messageId };
+  //     newEntry[button] = true;
+  //     userLikeInner.push(newEntry);
+  //   }
+
+  //   userLikeInner.forEach(async (item) => {
+  //     if (item.messageId === messageId) {
+  //       const retriveDataProfile = await pb
+  //         .collection("messageLikes")
+  //         .getFullList({
+  //           sort: "created",
+  //         });
+
+  //       const userExists = retriveDataProfile.some((users) => {
+  //         item.likeId = users.id;
+  //         if (
+  //           users.userLike.includes(pb.authStore.model.id) &&
+  //           users.post === item.messageId
+  //         ) {
+
+  //         }
+
+  //         return (
+  //           users.userLike.includes(pb.authStore.model.id) &&
+  //           users.post === item.messageId
+  //         );
+  //       });
+
+  //       if (userExists) {
+  //         const likeResponse = await pb
+  //           .collection("messageLikes")
+  //           .update(item.likeId, {
+  //             like: item.like,
+  //             love: item.love,
+  //             fire: item.fire,
+  //             dump: item.dump,
+  //             post: item.messageId,
+  //             userLike: pb.authStore.model.id,
+  //           });
+  //       } else {
+  //         const likeResponse = await pb.collection("messageLikes").create({
+  //           like: item.like || false,
+  //           love: item.love || false,
+  //           fire: item.fire || false,
+  //           dump: item.dump || false,
+  //           post: item.messageId,
+  //           userLike: pb.authStore.model.id,
+  //         });
+  //       }
+  //     }
+  //   });
+  // };
 </script>
 
 {#if $currentUser}
@@ -117,7 +315,7 @@
           {#await messagesData}
             <li><span>Loading...</span></li>
           {:then messagesData}
-            {#each messagesData as message (message.id)}
+            {#each messagesData as message, index}
               <div class="chat-list">
                 <div class="chat-list-user">
                   <div class="avatar">
@@ -133,21 +331,38 @@
                       <div class="post-likes-wrapper">
                         <div class="grid post-like">
                           <div class="like-wrapper">
-                            <button class="likes">👌</button>
+                            <button
+                              class="likes"
+                              on:click={() =>
+                                handleLike("like", index, message.id)}
+                              >👌</button
+                            >
 
                             <span>{countLikes(message.id, "like")}</span>
                           </div>
                           <div class="like-wrapper">
-                            <button class="likes">💓</button>
+                            <button
+                              on:click={() =>
+                                handleLike("love", index, message.id)}
+                              class="likes">💓</button
+                            >
                             <span>{countLikes(message.id, "love")}</span>
                           </div>
                           <div class="like-wrapper">
-                            <button class="likes">🔥</button>
+                            <button
+                              on:click={() =>
+                                handleLike("fire", index, message.id)}
+                              class="likes">🔥</button
+                            >
                             <span>{countLikes(message.id, "fire")}</span>
                           </div>
 
                           <div class="like-wrapper">
-                            <button class="likes">💩</button>
+                            <button
+                              on:click={() =>
+                                handleLike("dump", index, message.id)}
+                              class="likes">💩</button
+                            >
                             <span>{countLikes(message.id, "dump")}</span>
                           </div>
                         </div>
